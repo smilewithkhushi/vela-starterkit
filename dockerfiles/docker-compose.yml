@@ -14,6 +14,7 @@ volumes:
   vela-skit-deploy-data:
   vela-skit-subgraph-postgres:
   vela-skit-subgraph-ipfs:
+  vela-skit-shared-data:
 
 services:
   executor:
@@ -105,6 +106,7 @@ services:
       - vela-skit-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
       - vela-skit-logs:${LOG_SERVER_FOLDER:-/logs}
       - vela-skit-deploy-data:/deploy-data:ro
+      - vela-skit-shared-data:/shared-data
     depends_on:
       executor:
         condition: service_started
@@ -138,6 +140,7 @@ services:
     volumes:
       - vela-skit-manager-reports:${MANAGER_REPORTS_FOLDER:-/reports}
       - vela-skit-deploy-data:/deploy-data:ro
+      - vela-skit-shared-data:/shared-data
     depends_on:
       manager:
         condition: service_started

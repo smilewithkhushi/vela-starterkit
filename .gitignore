@@ -1,3 +1,27 @@
-.env
+# IDE / OS
 .vscode/
+.DS_Store
 
+# Claude Code
+.claude
+CLAUDE.md
+
+# Secrets & local config
+.env
+.env.dev
+dockerfiles/.env
+wallet/wallet.conf
+
+# Not relevant to voting app tutorial
+steps.md
+docs/steps.md
+docs/1_summary.md
+docs/2_private-transfer-app.md
+
+# Wallet binaries and payment app artifacts
+wallet/novaw-linux
+wallet/payment_app.wasm
+
+# Build output
+voting-app/voting_app.wasm
+voting-app/vendor/

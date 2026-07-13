@@ -1,26 +1,137 @@
-# Horizen Vela - Developer Starter Kit
+# Vela Private Voting App
 
-This repository contains the resources needed to implement and test a Proof of Concept based on Horizen Vela — a platform that executes WebAssembly (WASM) modules inside AWS Nitro Enclaves (TEE), with encrypted state management and blockchain-based coordination.
+A confidential voting app built on [Vela CCE](https://github.com/HorizenOfficial/vela) — a platform that runs WebAssembly modules inside AWS Nitro Enclaves (TEE) with encrypted state on-chain.
 
-## Documentation
+**Privacy model:**
+- Votes are private — only the voter sees their choice (encrypted P-521 event)
+- Tallies are public — vote counts emitted as plaintext AppEvents on-chain
+- Deanonymization — authorized auditors can request the full voter→choice map
 
-The [docs/](docs/) folder contains the following guides (recommended reading order):
+Default proposals: `Yes / No / Abstain`
 
-| # | Document | Description |
-|---|----------|-------------|
-| 1 | [Architecture Summary](docs/1_summary.md) | System overview, on-chain/off-chain flow, and key components |
-| 2 | [Private Transfer App](docs/2_private-transfer-app.md) | Step-by-step walkthrough for building a WASM app (Go code snippets) |
-| 3 | [TypeScript Client Library](docs/3_typescript-client.md) | Browser-side integration: key derivation, encryption, request submission |
+---
 
-## Local Test Environment
+## How It Works
 
-The [dockerfiles/](dockerfiles/) folder contains a Docker Compose setup that spins up a complete local environment:
+```
+User submits encrypted vote payload
+    → ProcessorEndpoint (on-chain queue)
+    → Manager polls chain, loads encrypted state
+    → Executor (TEE) decrypts state, runs WASM logic
+    → WASM validates proposal + double-vote, updates tallies
+    → Encrypted UserEvent emitted (voter's P-521 key)
+    → Plaintext AppEvent emitted (public tally update)
+    → New encrypted state committed on-chain
+```
 
-- **Anvil** dev chain (Foundry)
-- Automatic smart-contract deployment
-- Graph Node (subgraph) infrastructure
-- Processor Manager and Authority Service
+Your vote choice is never visible on-chain in plaintext.
 
-See the [dockerfiles README](dockerfiles/README.md) for setup instructions and configuration details.
+---
 
+## Prerequisites
 
+- Docker Desktop
+- Wallet CLI (`novaw-linux`) and configured `wallet/wallet.conf` — see [`docs/private-voting.md`](docs/private-voting.md)
+
+### Start the local Vela stack
+
+```bash
+cd dockerfiles
+cp .env.dev .env   # once
+docker compose up -d
+```
+
+Verify it's up:
+```bash
+curl -s -X POST http://localhost:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+```
+
+---
+
+## Build
+
+```bash
+cd voting-app
+make build
+# → voting-app/voting_app.wasm
+```
+
+---
+
+## Deploy
+
+```bash
+cp voting-app/voting_app.wasm wallet/
+cd wallet
+
+docker run --rm --platform linux/amd64 -v $(pwd):/wallet -w /wallet \
+  ubuntu:22.04 /wallet/novaw-linux deployapp \
+  --wasm /wallet/voting_app.wasm \
+  --max-value-fee "100 wei"
+# → Deploy app completed successfully. ApplicationID: <number>
+```
+
+Copy the `ApplicationID` into `wallet/wallet.conf`.
+
+---
+
+## Interact
+
+```bash
+# Run from wallet/ directory
+cd wallet
+
+# Register your P-521 key on-chain (once per app)
+docker run --rm --platform linux/amd64 -v $(pwd):/wallet -w /wallet \
+  ubuntu:22.04 /wallet/novaw-linux registeruser
+```
+
+Cast a vote and read private events via the TypeScript client (`vela-common-ts`):
+
+```ts
+import { VelaClient } from 'vela-common-ts';
+
+const client = new VelaClient({
+  rpcUrl:           'http://localhost:8545',
+  processorAddress: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9',
+  subgraphUrl:      'http://localhost:8000/subgraphs/name/hcce',
+});
+
+// Cast a vote (encrypts payload with TEE's P-521 key)
+await client.submitRequest(APP_ID,
+  JSON.stringify({ type: 'vote', vote: { proposal: 'Yes' } }),
+  secp256k1PrivKey,
+);
+
+// Read your private confirmation event
+const events = await client.getPrivateEvents(p521PrivKey, APP_ID);
+// → [{ type: "vote_cast", proposal: "Yes", nonce: 1 }]
+```
+
+---
+
+## Source Layout
+
+```
+voting-app/
+  main.go        # WASM bridge (pointer conversions → app package)
+  app/
+    types.go     # VotingState, payload, event structs
+    app.go       # Deploy, LoadModule, Deposit, ProcessRequest
+  go.mod
+  Makefile
+docs/
+  private-voting.md   # Full step-by-step tutorial
+  3_typescript-client.md
+dockerfiles/           # Local Vela stack (Anvil + Manager + Executor + Subgraph)
+wallet/
+  wallet.conf.template
+```
+
+---
+
+## Full Tutorial
+
+See [`docs/private-voting.md`](docs/private-voting.md) — covers state design, all WASM exports,
+build, deploy, casting votes, reading events, and deanonymization.
